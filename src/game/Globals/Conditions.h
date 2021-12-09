@@ -78,6 +78,12 @@ enum ConditionType
     CONDITION_SPAWN_COUNT           = 39,                   // value1: creatureId; value2: count;
     CONDITION_WORLD_SCRIPT          = 40,
     CONDITION_UNUSED_7              = 41,
+    CONDITION_MAP_EVENT_ACTIVE      = 42,                   // Returns true if a scripted map event with this id is currently active.
+                                                            // Requirement: Map
+    CONDITION_MAP_EVENT_TARGETS     = 43,                   // Returns true if all extra targets that are part of a scripted map event satisfy the provided condition id.
+                                                            // Requirement: Map
+                                                            // Value1: event_id
+                                                            // Value2: condition_id
 };
 
 enum ConditionFlags
@@ -101,6 +107,7 @@ enum ConditionSource                                        // From where was th
     CONDITION_FROM_TRAINER              = 10,                   // Used to check a condition from npc_trainer and npc_trainer_template
     CONDITION_FROM_AREATRIGGER_TELEPORT = 11,                   // Used to check a condition from areatrigger_teleport
     CONDITION_FROM_QUEST                = 12,                   // Used to check a condition from quest_template
+    CONDITION_FROM_MAP_EVENT            = 13,                   // Used to check a condition from scripted map events
 };
 
 enum ConditionRequirement

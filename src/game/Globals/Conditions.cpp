@@ -48,6 +48,7 @@ char const* conditionSourceToStr[] =
     "trainer's spell check",         // CONDITION_FROM_TRAINER
     "areatrigger teleport check",    // CONDITION_FROM_AREATRIGGER_TELEPORT
     "quest template",                // CONDITION_FROM_QUEST
+    "scripted map event",            // CONDITION_FROM_MAP_EVENT
 };
 
 // Stores what params need to be provided to each condition type.
@@ -99,6 +100,8 @@ uint8 const ConditionTargetsInternal[] =
     CONDITION_REQ_MAP_OR_WORLDOBJECT, //  39
     CONDITION_REQ_NONE,               //  40
     CONDITION_REQ_NONE,               //  41
+    CONDITION_REQ_MAP_OR_WORLDOBJECT, //  42
+    CONDITION_REQ_MAP_OR_WORLDOBJECT, //  43
 };
 
 // Starts from 4th element so that -3 will return first element.
@@ -463,6 +466,31 @@ bool inline ConditionEntry::Evaluate(WorldObject const* target, Map const* map, 
         case CONDITION_WORLD_SCRIPT:
         {
             return sWorldState.IsConditionFulfilled(m_value1, m_value2);
+        }
+        case CONDITION_MAP_EVENT_ACTIVE:
+        {
+            if (!map)
+                map = source ? source->GetMap() : target->GetMap();
+            return map->GetScriptedMapEvent(m_value1) != nullptr;
+        }
+        case CONDITION_MAP_EVENT_TARGETS:
+        {
+            bool satisfied = true;
+            Map* pMap = const_cast<Map*>(map ? map : (source ? source->GetMap() : target->GetMap()));
+            if (ScriptedEvent const* scriptedEvent = pMap->GetScriptedMapEvent(m_value1))
+            {
+                for (const auto& eventTarget : scriptedEvent->m_extraTargets)
+                {
+                    WorldObject* extraTarget = pMap->GetWorldObject(eventTarget.m_target);
+
+                    if (extraTarget)
+                        satisfied = satisfied && sConditionStorage.LookupEntry<ConditionEntry>(m_value2)->Meets(extraTarget, map, source, conditionSourceType);
+
+                    if (!satisfied)
+                        return false;
+                }
+            }
+            return satisfied;
         }
         default:
             break;
@@ -908,11 +936,22 @@ bool ConditionEntry::IsValid() const
             }
             break;
         }
+        case CONDITION_MAP_EVENT_TARGETS:
+        {
+            ConditionEntry const* condition1 = sConditionStorage.LookupEntry<ConditionEntry>(m_value2);
+            if (!condition1)
+            {
+                sLog.outErrorDb("CONDITION_MAP_EVENT_TARGETS (entry %u, type %d) has value2 %u without proper condition, skipped", m_entry, m_condition, m_value2);
+                return false;
+            }
+            break;
+        }
         case CONDITION_NONE:
         case CONDITION_INSTANCE_SCRIPT:
         case CONDITION_ACTIVE_HOLIDAY:
         case CONDITION_PVP_SCRIPT:
         case CONDITION_WORLD_SCRIPT:
+        case CONDITION_MAP_EVENT_ACTIVE:
             break;
         default:
             sLog.outErrorDb("Condition entry %u has bad type of %d, skipped ", m_entry, m_condition);

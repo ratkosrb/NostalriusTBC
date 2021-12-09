@@ -93,6 +93,102 @@ enum LevelRequirementVsMode
     LEVELREQUIREMENT_HEROIC = 70
 };
 
+// Additional target part of a ScriptedEvent. 
+struct ScriptedEventTarget
+{
+    ScriptedEventTarget(ObjectGuid target, uint32 failureCondition, uint32 failureScript, uint32 successCondition, uint32 successScript) :
+        m_target(target), m_failureCondition(failureCondition), m_failureScript(failureScript), m_successCondition(successCondition), m_successScript(successScript) {}
+
+    ObjectGuid m_target;
+    uint32 m_failureCondition;
+    uint32 m_failureScript;
+    uint32 m_successCondition;
+    uint32 m_successScript;
+};
+
+// Used for complex database scripts.
+// - Updated by the map every second.
+// - Can have success condition and script.
+// - Can have failure condition and script.
+// - Has 2 main targets.
+// - Can have many extra target objects, with their own success/failure conditions and scripts.
+// - Scripts can end the event at any point.
+// - Event targets can be accessed by scripts.
+struct ScriptedEvent
+{
+    ScriptedEvent(uint32 eventId, ObjectGuid source, ObjectGuid target, Map& map, time_t expireTime, uint32 failureCondition, uint32 failureScript, uint32 successCondition, uint32 successScript) :
+        m_source(source), m_target(target), m_map(map), m_eventId(eventId), m_expireTime(expireTime), m_ended(false), m_failureCondition(failureCondition), m_failureScript(failureScript), m_successCondition(successCondition), m_successScript(successScript) {}
+    
+    ObjectGuid m_source;
+    ObjectGuid m_target;
+    Map& m_map;
+
+    uint32 const m_eventId;
+    time_t m_expireTime;
+    bool m_ended;
+
+    uint32 m_failureCondition;
+    uint32 m_failureScript;
+    uint32 m_successCondition;
+    uint32 m_successScript;
+
+    std::vector<ScriptedEventTarget> m_extraTargets;
+
+    // Returns true when event has expired.
+    bool UpdateEvent();
+
+    void EndEvent(bool success);
+
+    void SendEventToMainTargets(uint32 data);
+
+    void SendEventToAdditionalTargets(uint32 data);
+
+    void SendEventToAllTargets(uint32 data);
+
+    void SetSourceObject(WorldObject* source)
+    {
+        if (source && source->IsInWorld() && (source->GetMap() == &m_map))
+        {
+            m_source = source->GetObjectGuid();
+        }
+    }
+
+    void SetTargetObject(WorldObject* target)
+    {
+        if (target && target->IsInWorld() && (target->GetMap() == &m_map))
+        {
+            m_target = target->GetObjectGuid();
+        }
+    }
+
+    void AddOrUpdateExtraTarget(WorldObject* object, uint32 failureCondition, uint32 failureScript, uint32 successCondition, uint32 successScript)
+    {
+        if (!object || !object->IsInWorld() || (object->GetMap() != &m_map))
+            return;
+
+        for (auto& target : m_extraTargets)
+        {
+            // If target already exists, just update data.
+            if (target.m_target == object->GetObjectGuid())
+            {
+                target.m_failureCondition = failureCondition;
+                target.m_failureScript = failureScript;
+                target.m_successCondition = successCondition;
+                target.m_successScript = successScript;
+                return;
+            }
+        }
+
+        m_extraTargets.emplace_back(object->GetObjectGuid(), failureCondition, failureScript, successCondition, successScript);
+    }
+
+    WorldObject* GetSourceObject() const;
+
+    WorldObject* GetTargetObject() const;
+
+    ScriptedEvent(ScriptedEvent const&) = delete;
+};
+
 #if defined( __GNUC__ )
 #pragma pack()
 #else
@@ -236,6 +332,24 @@ class Map : public GridRefManager<NGridType>
 
         typedef MapRefManager PlayerList;
         PlayerList const& GetPlayers() const { return m_mapRefManager; }
+
+        ScriptedEvent* GetScriptedMapEvent(uint32 id)
+        {
+            auto itr = m_scriptedEvents.find(id);
+            if (itr != m_scriptedEvents.end())
+                return &itr->second;
+            return nullptr;
+        }
+
+        ScriptedEvent const* GetScriptedMapEvent(uint32 id) const
+        {
+            auto itr = m_scriptedEvents.find(id);
+            if (itr != m_scriptedEvents.end())
+                return &itr->second;
+            return nullptr;
+        }
+
+        ScriptedEvent* StartScriptedEvent(uint32 id, WorldObject* source, WorldObject* target, uint32 timelimit, uint32 failureCondition, uint32 failureScript, uint32 successCondition, uint32 successScript);
 
         // per-map script storage
         enum ScriptExecutionParam
@@ -404,6 +518,11 @@ class Map : public GridRefManager<NGridType>
 
         void setNGrid(NGridType* grid, uint32 x, uint32 y);
         void ScriptsProcess();
+
+        // Scripted Map Events
+        std::map<uint32, ScriptedEvent> m_scriptedEvents;
+        void UpdateScriptedEvents();
+        uint32 m_uiScriptedEventsTimer;
 
         void SendObjectUpdates();
         std::set<Object*> i_objectsToClientUpdate;

@@ -132,9 +132,62 @@ enum ScriptCommand                                          // resSource, resTar
     // datalong2:0x00=add, 0x01=remove, 0x02=toggle
     SCRIPT_COMMAND_SET_DATA_64              = 49,           // datalong = set data param 1, datalong2 = set data param 2
     SCRIPT_COMMAND_ZONE_PULSE               = 50,           // 
+    SCRIPT_COMMAND_START_MAP_EVENT          = 51,           // resSource = Map
+                                                            // datalong = event_id
+                                                            // datalong2 = time_limit
+                                                            // dataint = success_condition
+                                                            // dataint2 = success_script
+                                                            // dataint3 = failure_condition
+                                                            // dataint4 = failure_script
+    SCRIPT_COMMAND_END_MAP_EVENT            = 52,           // resSource = Map
+                                                            // datalong = event_id
+                                                            // datalong2 = (bool) success
+    SCRIPT_COMMAND_ADD_MAP_EVENT_TARGET     = 53,           // resSource = Map
+                                                            // resTarget = WorldObject
+                                                            // datalong = event_id
+                                                            // dataint = success_condition
+                                                            // dataint2 = success_script
+                                                            // dataint3 = failure_condition
+                                                            // dataint4 = failure_script
+    SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET  = 54,           // resSource = Map
+                                                            // resTarget = WorldObject
+                                                            // datalong = event_id
+                                                            // datalong2 = condition_id
+                                                            // datalong3 = eRemoveMapEventTargetOptions
+    SCRIPT_COMMAND_SEND_MAP_EVENT           = 55,           // resSource = Map
+                                                            // datalong = event_id
+                                                            // datalong2 = data
+                                                            // datalong3 = eSendMapEventOptions
+    SCRIPT_COMMAND_EDIT_MAP_EVENT           = 56,           // resSource = Map
+                                                            // datalong = event_id
+                                                            // dataint = success_condition
+                                                            // dataint2 = success_script
+                                                            // dataint3 = failure_condition
+                                                            // dataint4 = failure_script
 };
 
 #define MAX_TEXT_ID 4                                       // used for SCRIPT_COMMAND_TALK, SCRIPT_COMMAND_EMOTE, SCRIPT_COMMAND_CAST_SPELL, SCRIPT_COMMAND_TERMINATE_SCRIPT
+
+// Possible datalong3 values for SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET
+enum eRemoveMapEventTargetOptions
+{
+    SO_REMOVETARGET_SELF = 0,
+    SO_REMOVETARGET_ONE_FIT_CONDITION = 1,
+    SO_REMOVETARGET_ALL_FIT_CONDITION = 2,
+    SO_REMOVETARGET_ALL_TARGETS = 3,
+
+    SO_REMOVETARGET_MAX
+};
+
+// Possible datalong3 values for SCRIPT_COMMAND_SEND_MAP_EVENT
+enum eSendMapEventOptions
+{
+    SO_SENDMAPEVENT_MAIN_TARGETS_ONLY  = 0,
+    SO_SENDMAPEVENT_EXTRA_TARGETS_ONLY = 1,
+    SO_SENDMAPEVENT_ALL_TARGETS        = 2,
+
+    SO_SENDMAPEVENT_MAX
+};
 
 enum ScriptInfoDataFlags
 {
@@ -150,8 +203,11 @@ enum ScriptInfoDataFlags
     SCRIPT_FLAG_BUDDY_BY_SPAWN_GROUP        = 0x100,        // buddy is from spawn group - NYI - TODO:
     SCRIPT_FLAG_ALL_ELIGIBLE_BUDDIES        = 0x200,        // multisource/multitarget - will execute for each eligible
     SCRIPT_FLAG_BUDDY_BY_GO                 = 0x400,        // take the buddy by GO (for commands which can target both creature and GO)
+    SCRIPT_FLAG_BUDDY_IS_EVENT_SOURCE       = 0x800,        // the source WorldObject of a scripted map event.
+    SCRIPT_FLAG_BUDDY_IS_EVENT_TARGET       = 0x1000,       // the target WorldObject of a scripted map event.
+    SCRIPT_FLAG_BUDDY_IS_EVENT_EXTRA_TARGET = 0x2000,       // additional WorldObject target from a scripted map event.
 };
-#define MAX_SCRIPT_FLAG_VALID               (2 * SCRIPT_FLAG_BUDDY_BY_GO - 1)
+#define MAX_SCRIPT_FLAG_VALID               (2 * SCRIPT_FLAG_BUDDY_IS_EVENT_EXTRA_TARGET - 1)
 
 struct ScriptInfo
 {
@@ -444,6 +500,54 @@ struct ScriptInfo
             uint32 empty1;                                  // datalong
             uint32 empty2;                                  // datalong2
         } logKill;
+
+        struct                                              // SCRIPT_COMMAND_START_MAP_EVENT (51)
+        {
+            uint32 eventId;                                 // datalong
+            uint32 timeLimit;                               // datalong2
+            //int32  successCondition;                      // dataint
+            //int32  successScript;                         // dataint2
+            //int32  failureCondition;                      // dataint3
+            //int32  failureScript;                         // dataint4
+        } startMapEvent;
+
+        struct                                              // SCRIPT_COMMAND_END_MAP_EVENT (52)
+        {
+            uint32 eventId;                                 // datalong
+            uint32 success;                                 // datalong2
+        } endMapEvent;
+
+        struct                                              // SCRIPT_COMMAND_ADD_MAP_EVENT_TARGET (53)
+        {
+            uint32 eventId;                                 // datalong
+            //int32  successCondition;                      // dataint
+            //int32  successScript;                         // dataint2
+            //int32  failureCondition;                      // dataint3
+            //int32  failureScript;                         // dataint4
+        } addMapEventTarget;
+
+        struct                                              // SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET (54)
+        {
+            uint32 eventId;                                 // datalong
+            uint32 conditionId;                             // datalong2
+            uint32 targets;                                 // datalong3
+        } removeMapEventTarget;
+
+        struct                                              // SCRIPT_COMMAND_SEND_MAP_EVENT (55)
+        {
+            uint32 eventId;                                 // datalong
+            uint32 data;                                    // datalong2
+            uint32 targets;                                 // datalong3
+        } sendMapEvent;
+
+        struct                                              // SCRIPT_COMMAND_EDIT_MAP_EVENT (56)
+        {
+            uint32 eventId;                                 // datalong
+            //int32  successCondition;                      // dataint
+            //int32  successScript;                         // dataint2
+            //int32  failureCondition;                      // dataint3
+            //int32  failureScript;                         // dataint4
+        } editMapEvent;
 
         struct
         {

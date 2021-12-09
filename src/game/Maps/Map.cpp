@@ -807,6 +807,14 @@ void Map::Update(const uint32& t_diff)
         }
     }
 
+    if (m_uiScriptedEventsTimer <= t_diff)
+    {
+        UpdateScriptedEvents();
+        m_uiScriptedEventsTimer = 1000u;
+    }
+    else
+        m_uiScriptedEventsTimer -= t_diff;
+
     ///- Process necessary scripts
     if (!m_scriptSchedule.empty())
         ScriptsProcess();
@@ -1919,6 +1927,146 @@ bool Map::CanEnter(Player* player)
         return false;
 
     return true;
+}
+
+void Map::UpdateScriptedEvents()
+{
+    for (auto itr = m_scriptedEvents.begin(); itr != m_scriptedEvents.end();)
+    {
+        if (itr->second.UpdateEvent())
+            m_scriptedEvents.erase(itr++);
+        else
+            ++itr;
+    }
+}
+
+ScriptedEvent* Map::StartScriptedEvent(uint32 id, WorldObject* source, WorldObject* target, uint32 timelimit, uint32 failureCondition, uint32 failureScript, uint32 successCondition, uint32 successScript)
+{
+    if (m_scriptedEvents.find(id) != m_scriptedEvents.end())
+        return nullptr;
+
+    auto itr = m_scriptedEvents.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::forward_as_tuple(id, source ? source->GetObjectGuid() : ObjectGuid(), target ? target->GetObjectGuid() : ObjectGuid(), *this, time_t(sWorld.GetGameTime() + timelimit), failureCondition, failureScript, successCondition, successScript));
+
+    return &itr.first->second;
+}
+
+bool ScriptedEvent::UpdateEvent()
+{
+    if (m_ended)
+        return true;
+
+    if (m_expireTime < sWorld.GetGameTime())
+    {
+        EndEvent(false);
+        return true;
+    }
+
+    WorldObject* source = GetSourceObject();
+    WorldObject* target = GetTargetObject();
+
+    if (m_failureCondition && IsConditionSatisfied(m_failureCondition, target, &m_map, source, CONDITION_FROM_MAP_EVENT))
+    {
+        EndEvent(false);
+        return true;
+    }
+    else if (m_successCondition && IsConditionSatisfied(m_successCondition, target, &m_map, source, CONDITION_FROM_MAP_EVENT))
+    {
+        EndEvent(true);
+        return true;
+    }
+
+    for (const auto& target : m_extraTargets)
+    {
+        WorldObject* extraTarget = m_map.GetWorldObject(target.m_target);
+
+        if (!extraTarget || !extraTarget->IsInWorld())
+            continue;
+
+        if (target.m_failureCondition && IsConditionSatisfied(target.m_failureCondition, extraTarget, &m_map, source, CONDITION_FROM_MAP_EVENT))
+        {
+            EndEvent(false);
+            return true;
+        }
+        else if (target.m_successCondition && IsConditionSatisfied(target.m_successCondition, extraTarget, &m_map, source, CONDITION_FROM_MAP_EVENT))
+        {
+            EndEvent(true);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void ScriptedEvent::EndEvent(bool success)
+{
+    m_ended = true;
+
+    if (WorldObject* source = GetSourceObject())
+    {
+        if (success && m_successScript)
+            m_map.ScriptsStart(sRelayScripts, m_successScript, source, m_map.GetWorldObject(m_target));
+        else if (!success && m_failureScript)
+            m_map.ScriptsStart(sRelayScripts, m_failureScript, source, m_map.GetWorldObject(m_target));
+    }
+
+    for (const auto& target : m_extraTargets)
+    {
+        WorldObject* extraTarget = m_map.GetWorldObject(target.m_target);
+
+        if (!extraTarget || !extraTarget->IsInWorld())
+            continue;
+
+        if (success && target.m_successScript)
+            m_map.ScriptsStart(sRelayScripts, target.m_successScript, extraTarget, m_map.GetWorldObject(m_target));
+        else if (!success && target.m_failureScript)
+            m_map.ScriptsStart(sRelayScripts, target.m_failureScript, extraTarget, m_map.GetWorldObject(m_target));
+    }
+}
+
+WorldObject* ScriptedEvent::GetSourceObject() const
+{
+    return m_map.GetWorldObject(m_source);
+}
+WorldObject* ScriptedEvent::GetTargetObject() const
+{
+    return m_map.GetWorldObject(m_target);
+}
+
+void ScriptedEvent::SendEventToMainTargets(uint32 data)
+{
+    WorldObject* source = GetSourceObject();
+    Unit* sourceUnit = source && source->IsUnit() ? static_cast<Unit*>(source) : nullptr;
+    WorldObject* target = GetTargetObject();
+    Unit* targetUnit = source && target->IsUnit() ? static_cast<Unit*>(target) : nullptr;
+
+    if (sourceUnit && sourceUnit->AI())
+        sourceUnit->AI()->ReceiveAIEvent((AIEventType)data, sourceUnit, targetUnit, m_eventId);
+
+    if (targetUnit && targetUnit->AI())
+        targetUnit->AI()->ReceiveAIEvent((AIEventType)data, sourceUnit, targetUnit, m_eventId);
+}
+
+void ScriptedEvent::SendEventToAdditionalTargets(uint32 data)
+{
+    WorldObject* source = GetSourceObject();
+    Unit* sourceUnit = source && source->IsUnit() ? static_cast<Unit*>(source) : nullptr;
+    WorldObject* target = GetTargetObject();
+    Unit* targetUnit = target && target->IsUnit() ? static_cast<Unit*>(target) : nullptr;
+
+    for (const auto& target : m_extraTargets)
+    {
+        if (WorldObject* extraTarget = m_map.GetWorldObject(target.m_target))
+            if (Unit* extraTargetUnit = extraTarget && extraTarget->IsUnit() ? static_cast<Unit*>(extraTarget) : nullptr)
+                if (extraTargetUnit->AI())
+                    extraTargetUnit->AI()->ReceiveAIEvent((AIEventType)data, sourceUnit, targetUnit, m_eventId);
+    }
+
+}
+void ScriptedEvent::SendEventToAllTargets(uint32 data)
+{
+    SendEventToMainTargets(data);
+
+    SendEventToAdditionalTargets(data);
 }
 
 /// Put scripts in the execution queue

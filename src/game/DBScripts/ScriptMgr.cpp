@@ -154,7 +154,7 @@ void ScriptMgr::LoadScripts(ScriptMapMapName& scripts, const char* tablename)
         }
 
         // generic command args check
-        if (tmp.buddyEntry && !(tmp.data_flags & SCRIPT_FLAG_BUDDY_BY_GUID))
+        if (tmp.buddyEntry && !(tmp.data_flags & (SCRIPT_FLAG_BUDDY_BY_GUID | SCRIPT_FLAG_BUDDY_IS_EVENT_SOURCE | SCRIPT_FLAG_BUDDY_IS_EVENT_TARGET | SCRIPT_FLAG_BUDDY_IS_EVENT_EXTRA_TARGET)))
         {
             if (tmp.IsCreatureBuddy() && !ObjectMgr::GetCreatureTemplate(tmp.buddyEntry))
             {
@@ -775,6 +775,35 @@ void ScriptMgr::LoadScripts(ScriptMapMapName& scripts, const char* tablename)
                 break;
             case SCRIPT_COMMAND_ZONE_PULSE:                 // 50
                 break;
+            case SCRIPT_COMMAND_START_MAP_EVENT:            // 51
+            case SCRIPT_COMMAND_ADD_MAP_EVENT_TARGET:       // 53
+            case SCRIPT_COMMAND_EDIT_MAP_EVENT:             // 56
+            {
+                if (tmp.textId[0] && !sConditionStorage.LookupEntry<ConditionEntry>(tmp.textId[0]))
+                {
+                    sLog.outErrorDb("Table `%s` has dataint = %u in command %u for script id %u, but this condition_id does not exist.", tablename, tmp.textId[0], tmp.command, tmp.id);
+                    continue;
+                }
+                if (tmp.textId[2] && !sConditionStorage.LookupEntry<ConditionEntry>(tmp.textId[2]))
+                {
+                    sLog.outErrorDb("Table `%s` has dataint3 = %u in command %u for script id %u, but this condition_id does not exist.", tablename, tmp.textId[2], tmp.command, tmp.id);
+                    continue;
+                }
+                break;
+            }
+            case SCRIPT_COMMAND_END_MAP_EVENT:              // 52
+                break;
+            case SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET:    // 54
+            {
+                if (!sConditionStorage.LookupEntry<ConditionEntry>(tmp.removeMapEventTarget.conditionId))
+                {
+                    sLog.outErrorDb("Table `%s` has datalong2 = %u in SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET for script id %u, but this condition_id does not exist.", tablename, tmp.removeMapEventTarget.conditionId, tmp.id);
+                    continue;
+                }
+                break;
+            }
+            case SCRIPT_COMMAND_SEND_MAP_EVENT:             // 55
+                break;
             default:
             {
                 sLog.outErrorDb("Table `%s` unknown command %u, skipping.", tablename, tmp.command);
@@ -1176,6 +1205,29 @@ bool ScriptAction::GetScriptProcessTargets(WorldObject* originalSource, WorldObj
             }
             // this type can only have one buddy result
             buddies.push_back(buddy);
+        }
+        else if (m_script->data_flags & (SCRIPT_FLAG_BUDDY_IS_EVENT_SOURCE | SCRIPT_FLAG_BUDDY_IS_EVENT_TARGET | SCRIPT_FLAG_BUDDY_IS_EVENT_EXTRA_TARGET))
+        {
+            if (ScriptedEvent* scriptedEvent = m_map->GetScriptedMapEvent(m_script->buddyEntry))
+            {
+                if (m_script->data_flags & SCRIPT_FLAG_BUDDY_IS_EVENT_SOURCE)
+                {
+                    if (WorldObject* object = scriptedEvent->GetSourceObject())
+                        buddies.push_back(object);
+                }
+                if (m_script->data_flags & SCRIPT_FLAG_BUDDY_IS_EVENT_TARGET)
+                {
+                    if (WorldObject* object = scriptedEvent->GetTargetObject())
+                        buddies.push_back(object);
+                }
+                if (m_script->data_flags & SCRIPT_FLAG_BUDDY_IS_EVENT_EXTRA_TARGET)
+                {
+                    for (const auto& target : scriptedEvent->m_extraTargets)
+                        if (WorldObject* object = m_map->GetWorldObject(target.m_target))
+                            if (object && (object->GetEntry() == m_script->searchRadiusOrGuid))
+                                buddies.push_back(object);
+                }
+            }
         }
         else                                                // Buddy by entry
         {
@@ -2554,6 +2606,150 @@ bool ScriptAction::ExecuteDbscriptCommand(WorldObject* pSource, WorldObject* pTa
             Creature* creature = static_cast<Creature*>(pSource);
             creature->SetInCombatWithZone();
             creature->AI()->AttackClosestEnemy();
+            break;
+        }
+        case SCRIPT_COMMAND_START_MAP_EVENT:                // 51
+        {
+            if (!m_map->StartScriptedEvent(m_script->startMapEvent.eventId, pSource, pTarget, m_script->startMapEvent.timeLimit, m_script->textId[2], m_script->textId[3], m_script->textId[0], m_script->textId[1]))
+                return true;
+            break;
+        }
+        case SCRIPT_COMMAND_END_MAP_EVENT:                  // 52
+        {
+            if (ScriptedEvent* scriptedEvent = m_map->GetScriptedMapEvent(m_script->endMapEvent.eventId))
+                scriptedEvent->EndEvent(m_script->endMapEvent.success);
+            break;
+        }
+        case SCRIPT_COMMAND_ADD_MAP_EVENT_TARGET:           // 53
+        {
+            if (!pSource)
+                return false;
+
+            ScriptedEvent* scriptedEvent = m_map->GetScriptedMapEvent(m_script->addMapEventTarget.eventId);
+
+            if (!scriptedEvent)
+            {
+                sLog.outErrorDb("SCRIPT_COMMAND_ADD_MAP_EVENT_TARGET (script id %u) call for a non-existing scripted map event (EventId: %u), skipping.", m_script->id, m_script->addMapEventTarget.eventId);
+                return false;
+            }
+
+            scriptedEvent->AddOrUpdateExtraTarget(pSource, m_script->textId[2], m_script->textId[3], m_script->textId[0], m_script->textId[1]);
+
+            break;
+        }
+        case SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET:        // 54
+        {
+            ScriptedEvent* scriptedEvent = m_map->GetScriptedMapEvent(m_script->removeMapEventTarget.eventId);
+
+            if (!scriptedEvent)
+            {
+                sLog.outError("SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET (script id %u) call for a non-existing scripted map event (EventId: %u), skipping.", m_script->id, m_script->removeMapEventTarget.eventId);
+                return false;
+            }
+
+            switch (m_script->removeMapEventTarget.targets)
+            {
+                case SO_REMOVETARGET_SELF:
+                {
+                    if (!pSource)
+                        return false;
+
+                    for (auto itr = scriptedEvent->m_extraTargets.begin(); itr != scriptedEvent->m_extraTargets.end(); ++itr)
+                    {
+                        if (itr->m_target == pSource->GetObjectGuid())
+                        {
+                            scriptedEvent->m_extraTargets.erase(itr);
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                case SO_REMOVETARGET_ONE_FIT_CONDITION:
+                case SO_REMOVETARGET_ALL_FIT_CONDITION:
+                {
+                    if (!m_script->removeMapEventTarget.conditionId)
+                    {
+                        sLog.outError("SCRIPT_COMMAND_REMOVE_MAP_EVENT_TARGET (script id %u) call with `datalong3`=%u but without a condition Id, skipping.", m_script->id, m_script->removeMapEventTarget.targets);
+                        return false;
+                    }
+
+                    for (auto itr = scriptedEvent->m_extraTargets.begin(); itr != scriptedEvent->m_extraTargets.end();)
+                    {
+                        if (WorldObject* pObject = m_map->GetWorldObject(itr->m_target))
+                        {
+                            if (IsConditionSatisfied(m_script->removeMapEventTarget.conditionId, pSource, m_map, pObject, CONDITION_FROM_DBSCRIPTS))
+                            {
+                                itr = scriptedEvent->m_extraTargets.erase(itr);
+                                if (m_script->removeMapEventTarget.targets == SO_REMOVETARGET_ONE_FIT_CONDITION)
+                                    return false;
+                                continue;
+                            }
+                        }
+
+                        ++itr;
+                    }
+                    break;
+                }
+                case SO_REMOVETARGET_ALL_TARGETS:
+                {
+                    scriptedEvent->m_extraTargets.clear();
+                    break;
+                }
+            }
+            break;
+        }
+        case SCRIPT_COMMAND_SEND_MAP_EVENT:                 // 55
+        {
+            ScriptedEvent* scriptedEvent = m_map->GetScriptedMapEvent(m_script->sendMapEvent.eventId);
+
+            if (!scriptedEvent)
+            {
+                sLog.outError("SCRIPT_COMMAND_SEND_MAP_EVENT (script id %u) call for a non-existing scripted map event (EventId: %u), skipping.", m_script->id, m_script->sendMapEvent.eventId);
+                return false;
+            }
+
+            switch (m_script->sendMapEvent.targets)
+            {
+                case SO_SENDMAPEVENT_MAIN_TARGETS_ONLY:
+                {
+                    scriptedEvent->SendEventToMainTargets(m_script->sendMapEvent.data);
+                    break;
+                }
+                case SO_SENDMAPEVENT_EXTRA_TARGETS_ONLY:
+                {
+                    scriptedEvent->SendEventToAdditionalTargets(m_script->sendMapEvent.data);
+                    break;
+                }
+                case SO_SENDMAPEVENT_ALL_TARGETS:
+                {
+                    scriptedEvent->SendEventToAllTargets(m_script->sendMapEvent.data);
+                    break;
+                }
+            }
+            break;
+        }
+        case SCRIPT_COMMAND_EDIT_MAP_EVENT:                 // 56
+        {
+            ScriptedEvent* scriptedEvent = m_map->GetScriptedMapEvent(m_script->editMapEvent.eventId);
+
+            if (!scriptedEvent)
+            {
+                sLog.outError("SCRIPT_COMMAND_EDIT_MAP_EVENT (script id %u) call for a non-existing scripted map event (EventId: %u), skipping.", m_script->id, m_script->editMapEvent.eventId);
+                return false;
+            }
+
+            if (m_script->textId[0] >= 0)
+                scriptedEvent->m_successCondition = m_script->textId[0];
+
+            if (m_script->textId[1] >= 0)
+                scriptedEvent->m_successScript = m_script->textId[1];
+
+            if (m_script->textId[2] >= 0)
+                scriptedEvent->m_failureCondition = m_script->textId[2];
+
+            if (m_script->textId[3] >= 0)
+                scriptedEvent->m_failureScript = m_script->textId[3];
+
             break;
         }
         default:

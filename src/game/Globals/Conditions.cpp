@@ -102,6 +102,7 @@ uint8 const ConditionTargetsInternal[] =
     CONDITION_REQ_NONE,               //  41
     CONDITION_REQ_MAP_OR_WORLDOBJECT, //  42
     CONDITION_REQ_MAP_OR_WORLDOBJECT, //  43
+    CONDITION_REQ_NONE,               //  44
 };
 
 // Starts from 4th element so that -3 will return first element.
@@ -491,6 +492,25 @@ bool inline ConditionEntry::Evaluate(WorldObject const* target, Map const* map, 
                 }
             }
             return satisfied;
+        }
+        case CONDITION_ESCORT:
+        {
+            Unit const* sourceUnit = source && source->IsUnit() ? static_cast<Unit const*>(source) : nullptr;
+            Unit const* targetUnit = target && target->IsUnit() ? static_cast<Unit const*>(target) : nullptr;
+
+            if (m_value1 & CF_ESCORT_SOURCE_DEAD)
+                if (!sourceUnit || sourceUnit->IsDead() || !sourceUnit->IsInWorld())
+                    return true;
+
+            if (m_value1 & CF_ESCORT_TARGET_DEAD)
+                if (!targetUnit || targetUnit->IsDead() || !targetUnit->IsInWorld())
+                    return true;
+
+            if (m_value2)
+                if (!sourceUnit || !targetUnit || !sourceUnit->IsWithinDistInMap(targetUnit, m_value2))
+                    return true;
+
+            return false;
         }
         default:
             break;
@@ -941,7 +961,16 @@ bool ConditionEntry::IsValid() const
             ConditionEntry const* condition1 = sConditionStorage.LookupEntry<ConditionEntry>(m_value2);
             if (!condition1)
             {
-                sLog.outErrorDb("CONDITION_MAP_EVENT_TARGETS (entry %u, type %d) has value2 %u without proper condition, skipped", m_entry, m_condition, m_value2);
+                sLog.outErrorDb("Map event targets check condition (entry %u, type %d) has value2 %u without proper condition, skipped", m_entry, m_condition, m_value2);
+                return false;
+            }
+            break;
+        }
+        case CONDITION_ESCORT:
+        {
+            if (!m_value1 && !m_value2)
+            {
+                sLog.outErrorDb("Escort condition (entry %u, type %u) with no parameters, skipping.", m_entry, m_condition, m_value2);
                 return false;
             }
             break;

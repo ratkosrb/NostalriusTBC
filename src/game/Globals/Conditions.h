@@ -84,6 +84,10 @@ enum ConditionType
                                                             // Requirement: Map
                                                             // Value1: event_id
                                                             // Value2: condition_id
+    CONDITION_ESCORT                = 44,                   // Checks the alive state of the source and target, and the distance between them. Used for escorts.
+                                                            // Requirement: None (optionally Creature Source, Player Target)
+                                                            // Value1: flags (see enum eEscortConditionFlags)
+                                                            // Value2: distance (optional)
 };
 
 enum ConditionFlags
@@ -129,6 +133,12 @@ enum ConditionRequirement
     CONDITION_REQ_BOTH_GAMEOBJECTS,
     CONDITION_REQ_BOTH_UNITS,
     CONDITION_REQ_BOTH_PLAYERS,
+};
+
+enum eEscortConditionFlags
+{
+    CF_ESCORT_SOURCE_DEAD = 0x1,
+    CF_ESCORT_TARGET_DEAD = 0x2,
 };
 
 class ConditionEntry

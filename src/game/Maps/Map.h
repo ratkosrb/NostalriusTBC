@@ -522,7 +522,7 @@ class Map : public GridRefManager<NGridType>
         // Scripted Map Events
         std::map<uint32, ScriptedEvent> m_scriptedEvents;
         void UpdateScriptedEvents();
-        uint32 m_uiScriptedEventsTimer;
+        uint32 m_scriptedEventsTimer;
 
         void SendObjectUpdates();
         std::set<Object*> i_objectsToClientUpdate;

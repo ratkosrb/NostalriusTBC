@@ -147,7 +147,7 @@ void Map::LoadMapAndVMap(int gx, int gy)
 
 Map::Map(uint32 id, time_t expiry, uint32 InstanceId, uint8 SpawnMode)
     : i_mapEntry(sMapStore.LookupEntry(id)), i_spawnMode(SpawnMode),
-      i_id(id), i_InstanceId(InstanceId), m_unloadTimer(0),
+      i_id(id), i_InstanceId(InstanceId), m_unloadTimer(0), m_scriptedEventsTimer(0),
       m_VisibleDistance(DEFAULT_VISIBILITY_DISTANCE), m_persistentState(nullptr),
       m_activeNonPlayersIter(m_activeNonPlayers.end()), m_onEventNotifiedIter(m_onEventNotifiedObjects.end()),
       i_gridExpiry(expiry), m_TerrainData(sTerrainMgr.LoadTerrain(id)),
@@ -807,13 +807,13 @@ void Map::Update(const uint32& t_diff)
         }
     }
 
-    if (m_uiScriptedEventsTimer <= t_diff)
+    if (m_scriptedEventsTimer <= t_diff)
     {
         UpdateScriptedEvents();
-        m_uiScriptedEventsTimer = 1000u;
+        m_scriptedEventsTimer = 1000u;
     }
     else
-        m_uiScriptedEventsTimer -= t_diff;
+        m_scriptedEventsTimer -= t_diff;
 
     ///- Process necessary scripts
     if (!m_scriptSchedule.empty())
